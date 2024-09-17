@@ -16,6 +16,7 @@ from torch.distributed.fsdp import (
 )
 from torch.distributed.fsdp.api import FullStateDictConfig, FullOptimStateDictConfig
 from torch.distributed.fsdp.wrap import transformer_auto_wrap_policy
+from transformers import AutoTokenizer
 import tensor_parallel as tp
 
 from preference_datasets import get_batch_iterator
@@ -40,7 +41,9 @@ import json
 import functools
 from typing import Optional, Dict, List, Union, Tuple
 
-
+"""
+该代码质量非常高，推荐学习
+"""
 def dpo_loss(policy_chosen_logps: torch.FloatTensor,
              policy_rejected_logps: torch.FloatTensor,
              reference_chosen_logps: torch.FloatTensor,
@@ -62,15 +65,20 @@ def dpo_loss(policy_chosen_logps: torch.FloatTensor,
         The losses tensor contains the DPO loss for each example in the batch.
         The chosen_rewards and rejected_rewards tensors contain the rewards for the chosen and rejected responses, respectively.
     """
-    pi_logratios = policy_chosen_logps - policy_rejected_logps
+    # policy_chosen_logps:[batch,]
+    # policy_rejected_logps:[batch,]
+    # pi_logratios:[batch,], 注意是针对整个response维度而非某个token维度
+    pi_logratios = policy_chosen_logps - policy_rejected_logps # 均在log空间内
     ref_logratios = reference_chosen_logps - reference_rejected_logps
 
     if reference_free:
         ref_logratios = 0
 
-    logits = pi_logratios - ref_logratios
+    logits = pi_logratios - ref_logratios # 与(policy_chosen_logps - reference_chosen_logps) - (policy_rejected_logps-reference_rejected_logps)等价
+    # losses:[batch,]
+    losses = -F.logsigmoid(beta * logits) # paper中的公式(7)
 
-    losses = -F.logsigmoid(beta * logits)
+    # chosen_rewards:[batch,]
     chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
     rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
 
@@ -90,26 +98,30 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, averag
     """
     assert logits.shape[:-1] == labels.shape
 
-    labels = labels[:, 1:].clone()
+    # logits: [batch_size, sequence_length, vocab_size]
+    # labels: (batch_size, sequence_length)
     logits = logits[:, :-1, :]
+    labels = labels[:, 1:].clone() # labels取logits向后移一位的结果
     loss_mask = (labels != -100)
 
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == -100] = 0
 
-    per_token_logps = torch.gather(logits.log_softmax(-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
+    per_token_logps = torch.gather(logits.log_softmax(dim=-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
 
+    loss_sum = (per_token_logps * loss_mask).sum(-1)
     if average_log_prob:
-        return (per_token_logps * loss_mask).sum(-1) / loss_mask.sum(-1)
+        return loss_sum / loss_mask.sum(-1)
     else:
-        return (per_token_logps * loss_mask).sum(-1)
+        return loss_sum
 
 
 def concatenated_inputs(batch: Dict[str, Union[List, torch.LongTensor]]) -> Dict[str, torch.LongTensor]:
     """Concatenate the chosen and rejected inputs into a single tensor.
     
     Args:
-        batch: A batch of data. Must contain the keys 'chosen_input_ids' and 'rejected_input_ids', which are tensors of shape (batch_size, sequence_length).
+        batch: A batch of data. Must contain the keys 'chosen_input_ids' and 'rejected_input_ids',
+        which are tensors of shape (batch_size, sequence_length).
         
     Returns:
         A dictionary containing the concatenated inputs under the key 'concatenated_input_ids'.
@@ -118,7 +130,7 @@ def concatenated_inputs(batch: Dict[str, Union[List, torch.LongTensor]]) -> Dict
     concatenated_batch = {}
     for k in batch:
         if k.startswith('chosen') and isinstance(batch[k], torch.Tensor):
-            pad_value = -100 if 'labels' in k else 0
+            pad_value = -100 if 'labels' in k else 0 # 对于input_id,就是pad=0
             concatenated_key = k.replace('chosen', 'concatenated')
             concatenated_batch[concatenated_key] = pad_to_length(batch[k], max_length, pad_value=pad_value)
     for k in batch:
@@ -128,7 +140,7 @@ def concatenated_inputs(batch: Dict[str, Union[List, torch.LongTensor]]) -> Dict
             concatenated_batch[concatenated_key] = torch.cat((
                 concatenated_batch[concatenated_key],
                 pad_to_length(batch[k], max_length, pad_value=pad_value),
-            ), dim=0)
+            ), dim=0) # 只有第一个是正样本，其它的均为负枰本，在batch维度上concat
     return concatenated_batch
 
 
@@ -147,7 +159,7 @@ class BasicTrainer(object):
 
         tokenizer_name_or_path = config.model.tokenizer_name_or_path or config.model.name_or_path
         rank0_print(f'Loading tokenizer {tokenizer_name_or_path}')
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained(tokenizer_name_or_path, cache_dir=get_local_dir(config.local_dirs))
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path, cache_dir=get_local_dir(config.local_dirs))
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
@@ -212,11 +224,15 @@ class BasicTrainer(object):
 
         if loss_config.name == 'dpo':
             policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(self.policy, batch)
-            with torch.no_grad():
+
+            with torch.no_grad(): # reference_model是freeze的，且不计算梯度
                 reference_chosen_logps, reference_rejected_logps = self.concatenated_forward(self.reference_model, batch)
 
+            # chosen_rewards, rejected_rewards只用来记录,只有loss有用
             losses, chosen_rewards, rejected_rewards = dpo_loss(
-                policy_chosen_logps, policy_rejected_logps, reference_chosen_logps, reference_rejected_logps, beta=loss_config.beta, reference_free=loss_config.reference_free)
+                policy_chosen_logps, policy_rejected_logps,
+                reference_chosen_logps, reference_rejected_logps, beta=loss_config.beta, reference_free=loss_config.reference_free)
+
             reward_accuracies = (chosen_rewards > rejected_rewards).float()
 
             chosen_rewards = all_gather_if_needed(chosen_rewards, self.rank, self.world_size)
@@ -413,6 +429,7 @@ class FSDPTrainer(BasicTrainer):
         wrap_class = get_block_class_from_model(policy, config.model.block_name)
         model_auto_wrap_policy = functools.partial(transformer_auto_wrap_policy, transformer_layer_cls={wrap_class},)
 
+        # 没有使用transformer的fsdp,而直接手动使用原始的fsdp
         shared_fsdp_kwargs = dict(
             auto_wrap_policy=model_auto_wrap_policy,
             sharding_strategy=ShardingStrategy.FULL_SHARD,
@@ -454,7 +471,7 @@ class FSDPTrainer(BasicTrainer):
             self.reference_model = FSDP(reference_model, **shared_fsdp_kwargs)
         
         print('Loaded model on rank', rank)
-        dist.barrier()
+        dist.barrier() #     Synchronize all processes.
 
     def clip_gradient(self):
         """Clip the gradient norm of the parameters of an FSDP policy, gathering the gradients across all GPUs."""

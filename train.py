@@ -3,8 +3,9 @@ torch.backends.cuda.matmul.allow_tf32 = True
 import torch.nn as nn
 import transformers
 from utils import get_local_dir, get_local_run_dir, disable_dropout, init_distributed
+from transformers import AutoModelForCausalLM
 import os
-import hydra
+import hydra # The Python Bloom Filter.
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from omegaconf import OmegaConf, DictConfig
@@ -75,15 +76,15 @@ def main(config: DictConfig):
     print('building policy')
     model_kwargs = {'device_map': 'balanced'} if config.trainer == 'BasicTrainer' else {}
     policy_dtype = getattr(torch, config.model.policy_dtype)
-    policy = transformers.AutoModelForCausalLM.from_pretrained(
-        config.model.name_or_path, low_cpu_mem_usage=True, torch_dtype=policy_dtype, **model_kwargs)
+    # 真正的模型
+    policy = AutoModelForCausalLM.from_pretrained(config.model.name_or_path, low_cpu_mem_usage=True, torch_dtype=policy_dtype, **model_kwargs)
     disable_dropout(policy)
 
     if config.loss.name == 'dpo':
         print('building reference model')
         reference_model_dtype = getattr(torch, config.model.reference_dtype)
-        reference_model = transformers.AutoModelForCausalLM.from_pretrained(
-            config.model.name_or_path, low_cpu_mem_usage=True, torch_dtype=reference_model_dtype, **model_kwargs)
+        # reference的模型
+        reference_model = AutoModelForCausalLM.from_pretrained(config.model.name_or_path, low_cpu_mem_usage=True, torch_dtype=reference_model_dtype, **model_kwargs)
         disable_dropout(reference_model)
     else:
         reference_model = None
