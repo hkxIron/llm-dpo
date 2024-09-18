@@ -58,7 +58,7 @@ def get_stack_exchange(split, silent=False, cache_dir: str = None) -> Dict[str, 
     #dataset = datasets.load_dataset('HuggingFaceH4/stack-exchange-preferences', cache_dir=cache_dir)['train']
     dataset_path = "/home/hkx/data/work/hf_data_and_model/datas/stack-exchange-preferences/"
     #dataset_path = "/media/hkx/win/hkx/ubuntu/work/hf_data_and_model/datas/stack-exchange-preferences/data/3dprinting.meta.stackexchange.com/"
-    dataset = datasets.load_dataset(path=dataset_path, cache_dir=None, num_proc=10)['train']
+    dataset = datasets.load_dataset(path=dataset_path, cache_dir=None, num_proc=3)['train']
     #dataset = load_from_disk(dataset_path)
     print(f'load data done, dataset:{dataset}, shape:{len(dataset)}')
 
