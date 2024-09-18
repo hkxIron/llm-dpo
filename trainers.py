@@ -74,14 +74,13 @@ def dpo_loss(policy_chosen_logps: torch.FloatTensor,
     if reference_free:
         ref_logratios = 0
 
-    logits = pi_logratios - ref_logratios # 与(policy_chosen_logps - reference_chosen_logps) - (policy_rejected_logps-reference_rejected_logps)等价
+    logits = pi_logratios - ref_logratios # 与paper中的公式(7)中的(policy_chosen_logps - reference_chosen_logps) - (policy_rejected_logps-reference_rejected_logps)等价
     # losses:[batch,]
     losses = -F.logsigmoid(beta * logits) # paper中的公式(7)
 
     # chosen_rewards:[batch,]
     chosen_rewards = beta * (policy_chosen_logps - reference_chosen_logps).detach()
     rejected_rewards = beta * (policy_rejected_logps - reference_rejected_logps).detach()
-
     return losses, chosen_rewards, rejected_rewards
 
 
@@ -106,7 +105,7 @@ def _get_batch_logps(logits: torch.FloatTensor, labels: torch.LongTensor, averag
 
     # dummy token; we'll ignore the losses on these tokens later
     labels[labels == -100] = 0
-
+    # log_softmax数学上等价于log(softmax(x)), 但做这两个单独操作速度较慢，数值上也不稳定。这个函数使用另一种公式来正确计算输出和梯度。
     per_token_logps = torch.gather(logits.log_softmax(dim=-1), dim=2, index=labels.unsqueeze(2)).squeeze(2)
 
     loss_sum = (per_token_logps * loss_mask).sum(-1)
@@ -145,7 +144,7 @@ def concatenated_inputs(batch: Dict[str, Union[List, torch.LongTensor]]) -> Dict
 
 
 class BasicTrainer(object):
-    def __init__(self, policy: nn.Module, config: DictConfig, seed: int, run_dir: str, reference_model: Optional[nn.Module] = None, rank: int = 0, world_size: int = 1):
+    def __init__(self, policy_model: nn.Module, config: DictConfig, seed: int, run_dir: str, reference_model: Optional[nn.Module] = None, rank: int = 0, world_size: int = 1):
         """A trainer for a language model, supporting either SFT or DPO training.
            
            If multiple GPUs are present, naively splits the model across them, effectively
@@ -172,7 +171,7 @@ class BasicTrainer(object):
             sft_mode=config.loss.name == 'sft',
         )
 
-        self.policy = policy
+        self.policy_model = policy_model
         self.reference_model = reference_model
 
         self.train_iterator = get_batch_iterator(**data_iterator_kwargs, split='train', n_epochs=config.n_epochs, n_examples=config.n_examples, batch_size=config.batch_size, silent=rank != 0, cache_dir=get_local_dir(config.local_dirs))
@@ -184,7 +183,7 @@ class BasicTrainer(object):
     def get_batch_samples(self, batch: Dict[str, torch.LongTensor]) -> Tuple[str, str]:
         """Generate samples from the policy (and reference model, if doing DPO training) for the given batch of inputs."""
 
-        policy_output = self.policy.generate(
+        policy_output = self.policy_model.generate(
             batch['prompt_input_ids'], attention_mask=batch['prompt_attention_mask'], max_length=self.config.max_length, do_sample=True, pad_token_id=self.tokenizer.pad_token_id)
         if self.config.loss.name == 'dpo':
             reference_output = self.reference_model.generate(
@@ -223,14 +222,13 @@ class BasicTrainer(object):
         train_test = 'train' if train else 'eval'
 
         if loss_config.name == 'dpo':
-            policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(self.policy, batch)
+            policy_chosen_logps, policy_rejected_logps = self.concatenated_forward(self.policy_model, batch)
 
             with torch.no_grad(): # reference_model是freeze的，且不计算梯度
                 reference_chosen_logps, reference_rejected_logps = self.concatenated_forward(self.reference_model, batch)
 
             # chosen_rewards, rejected_rewards只用来记录,只有loss有用
-            losses, chosen_rewards, rejected_rewards = dpo_loss(
-                policy_chosen_logps, policy_rejected_logps,
+            losses, chosen_rewards, rejected_rewards = dpo_loss(policy_chosen_logps, policy_rejected_logps,
                 reference_chosen_logps, reference_rejected_logps, beta=loss_config.beta, reference_free=loss_config.reference_free)
 
             reward_accuracies = (chosen_rewards > rejected_rewards).float()
@@ -248,7 +246,7 @@ class BasicTrainer(object):
             metrics[f'logps_{train_test}/rejected'] = policy_rejected_logps.cpu().numpy().tolist()
 
         elif loss_config.name == 'sft':
-            policy_chosen_logits = self.policy(batch['chosen_input_ids'], attention_mask=batch['chosen_attention_mask']).logits.to(torch.float32)
+            policy_chosen_logits = self.policy_model(batch['chosen_input_ids'], attention_mask=batch['chosen_attention_mask']).logits.to(torch.float32)
             policy_chosen_logps = _get_batch_logps(policy_chosen_logits, batch['chosen_labels'], average_log_prob=False)
 
             losses = -policy_chosen_logps
@@ -265,7 +263,7 @@ class BasicTrainer(object):
         """Begin either SFT or DPO training, with periodic evaluation."""
 
         rank0_print(f'Using {self.config.optimizer} optimizer')
-        self.optimizer = getattr(torch.optim, self.config.optimizer)(self.policy.parameters(), lr=self.config.lr)
+        self.optimizer = getattr(torch.optim, self.config.optimizer)(self.policy_model.parameters(), lr=self.config.lr)
         self.scheduler = torch.optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=lambda step: min(1.0, (step + 1) / (self.config.warmup_steps + 1)))
     
         torch.manual_seed(self.seed)
@@ -283,7 +281,7 @@ class BasicTrainer(object):
             #### BEGIN EVALUATION ####
             if self.example_counter % self.config.eval_every == 0 and (self.example_counter > 0 or self.config.do_first_eval):
                 rank0_print(f'Running evaluation after {self.example_counter} train examples')
-                self.policy.eval()
+                self.policy_model.eval()
 
                 all_eval_metrics = defaultdict(list)
                 if self.config.sample_during_eval:
@@ -302,7 +300,7 @@ class BasicTrainer(object):
 
                     if self.config.sample_during_eval:
                         if 'FSDP' in self.config.trainer:
-                            with FSDP.summon_full_params(self.policy, writeback=False, recurse=False):
+                            with FSDP.summon_full_params(self.policy_model, writeback=False, recurse=False):
                                 policy_samples, reference_samples = self.get_batch_samples(local_eval_batch)
                         else:
                             policy_samples, reference_samples = self.get_batch_samples(local_eval_batch)
@@ -341,7 +339,7 @@ class BasicTrainer(object):
             #### END EVALUATION ####
 
             #### BEGIN TRAINING ####
-            self.policy.train()
+            self.policy_model.train()
 
             start_time = time.time()
             batch_metrics = defaultdict(list)
@@ -384,7 +382,7 @@ class BasicTrainer(object):
 
     def clip_gradient(self):
         """Clip the gradient norm of the parameters of a non-FSDP policy."""
-        return torch.nn.utils.clip_grad_norm_(self.policy.parameters(), self.config.max_grad_norm).item()
+        return torch.nn.utils.clip_grad_norm_(self.policy_model.parameters(), self.config.max_grad_norm).item()
 
     def write_state_dict(self, step: int, state: Dict[str, torch.Tensor], metrics: Dict, filename: str, dir_name: Optional[str] = None):
         """Write a checkpoint to disk."""
@@ -403,7 +401,7 @@ class BasicTrainer(object):
     def save(self, output_dir: Optional[str] = None, metrics: Optional[Dict] = None):
         """Save policy, optimizer, and scheduler state to disk."""
 
-        policy_state_dict = self.policy.state_dict()
+        policy_state_dict = self.policy_model.state_dict()
         self.write_state_dict(self.example_counter, policy_state_dict, metrics, 'policy.pt', output_dir)
         del policy_state_dict
 
@@ -416,17 +414,17 @@ class BasicTrainer(object):
 
 
 class FSDPTrainer(BasicTrainer):
-    def __init__(self, policy: nn.Module, config: DictConfig, seed: int, run_dir: str, reference_model: Optional[nn.Module] = None, rank: int = 0, world_size: int = 1):
+    def __init__(self, policy_model: nn.Module, config: DictConfig, seed: int, run_dir: str, reference_model: Optional[nn.Module] = None, rank: int = 0, world_size: int = 1):
         """A trainer subclass that uses PyTorch FSDP to shard the model across multiple GPUs.
         
            This trainer will shard both the policy and reference model across all available GPUs.
            Models are sharded at the block level, where the block class name is provided in the config.
         """
 
-        super().__init__(policy, config, seed, run_dir, reference_model, rank, world_size)
+        super().__init__(policy_model, config, seed, run_dir, reference_model, rank, world_size)
         assert config.model.block_name is not None, 'must specify model.block_name (e.g., GPT2Block or GPTNeoXLayer) for FSDP'
 
-        wrap_class = get_block_class_from_model(policy, config.model.block_name)
+        wrap_class = get_block_class_from_model(policy_model, config.model.block_name)
         model_auto_wrap_policy = functools.partial(transformer_auto_wrap_policy, transformer_layer_cls={wrap_class},)
 
         # 没有使用transformer的fsdp,而直接手动使用原始的fsdp
@@ -445,7 +443,7 @@ class FSDPTrainer(BasicTrainer):
         rank0_print('Sharding policy...')
         mp_dtype = getattr(torch, config.model.fsdp_policy_mp) if config.model.fsdp_policy_mp is not None else None
         policy_mp_policy = MixedPrecision(param_dtype=mp_dtype, reduce_dtype=mp_dtype, buffer_dtype=mp_dtype)
-        self.policy = FSDP(policy, **shared_fsdp_kwargs, mixed_precision=policy_mp_policy)
+        self.policy = FSDP(policy_model, **shared_fsdp_kwargs, mixed_precision=policy_mp_policy)
 
         if config.activation_checkpointing:
             rank0_print('Attempting to enable activation checkpointing...')
@@ -504,16 +502,16 @@ class FSDPTrainer(BasicTrainer):
         
 
 class TensorParallelTrainer(BasicTrainer):
-    def __init__(self, policy, config, seed, run_dir, reference_model=None, rank=0, world_size=1):
+    def __init__(self, policy_model, config, seed, run_dir, reference_model=None, rank=0, world_size=1):
         """A trainer subclass that uses TensorParallel to shard the model across multiple GPUs.
 
            Based on https://github.com/BlackSamorez/tensor_parallel. Note sampling is extremely slow,
               see https://github.com/BlackSamorez/tensor_parallel/issues/66.
         """
-        super().__init__(policy, config, seed, run_dir, reference_model, rank, world_size)
+        super().__init__(policy_model, config, seed, run_dir, reference_model, rank, world_size)
         
         rank0_print('Sharding policy...')
-        self.policy = tp.tensor_parallel(policy, sharded=True)
+        self.policy = tp.tensor_parallel(policy_model, sharded=True)
         if config.loss.name == 'dpo':
             rank0_print('Sharding reference model...')
             self.reference_model = tp.tensor_parallel(reference_model, sharded=False)

@@ -90,5 +90,5 @@ minimum_log_interval_secs: 1.0
 
 defaults:
 - _self_
-- model: blank_model_fp32 # basic model configuration
+- model: blank_model_fp32 # basic model configuration, 会去model文件夹下找对应名称的文件
 - loss: sft # which loss function, either sft or dpo (specify loss.beta if using dpo)

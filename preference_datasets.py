@@ -1,3 +1,5 @@
+import json
+
 import datasets
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -10,6 +12,8 @@ from bs4 import BeautifulSoup, NavigableString
 import numpy as np
 from typing import Dict, List, Optional, Iterator, Callable, Union, Tuple
 #import ipdb
+from datasets import load_from_disk
+
 
 def extract_anthropic_prompt(prompt_and_response):
     """Extract the anthropic prompt from a prompt and response pair."""
@@ -43,19 +47,24 @@ def strip_html_tags(html_string):
     return text
 
 
-def get_se(split, silent=False, cache_dir: str = None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
+def get_stack_exchange(split, silent=False, cache_dir: str = None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
     """Load the StackExchange dataset from Huggingface, and return a dict of prompts and responses. See get_hh for the format.
     
        We strip the HTML tags from the responses (except for <code> tags), and we add necessary newlines.
+
+       https://hf-mirror.com/datasets/HuggingFaceH4/stack-exchange-preferences/tree/main/data/3dprinting.stackexchange.com
     """
     print(f'Loading SE dataset ({split} split) from Huggingface...')
-    dataset = datasets.load_dataset('HuggingFaceH4/stack-exchange-preferences', cache_dir=cache_dir)['train']
-    print('done')
+    #dataset = datasets.load_dataset('HuggingFaceH4/stack-exchange-preferences', cache_dir=cache_dir)['train']
+    dataset_path = "/home/hkx/data/work/hf_data_and_model/datas/stack-exchange-preferences/"
+    #dataset_path = "/media/hkx/win/hkx/ubuntu/work/hf_data_and_model/datas/stack-exchange-preferences/data/3dprinting.meta.stackexchange.com/"
+    dataset = datasets.load_dataset(path=dataset_path, cache_dir=None, num_proc=10)['train']
+    #dataset = load_from_disk(dataset_path)
+    print(f'load data done, dataset:{dataset}, shape:{len(dataset)}')
 
     # shuffle the dataset and select 1% for test
     dataset = dataset.shuffle(seed=42)
-    dataset = dataset.select(range(int(len(dataset) * 0.01))) if split == 'test' else dataset.select(
-        range(int(len(dataset) * 0.01), len(dataset)))
+    dataset = dataset.select(range(int(len(dataset) * 0.01))) if split == 'test' else dataset.select(range(int(len(dataset) * 0.01), len(dataset)))
 
     def strip_html(x):
         x['question'] = strip_html_tags(x['question'])
@@ -78,8 +87,36 @@ def get_se(split, silent=False, cache_dir: str = None) -> Dict[str, Dict[str, Un
 
         data[prompt]['responses'] = responses
         data[prompt]['pairs'] = pairs
-        data[prompt]['sft_target'] = max(responses, key=lambda x: scores[responses.index(x)])
+        data[prompt]['sft_target'] = max(responses, key=lambda x: scores[responses.index(x)]) # 获取score最高的回答作为sft的结果
 
+    """
+    {
+    "responses":
+    [
+        " The problem is in the design of your bed. Let's start from the basic setup of a glass bed:\n\nThe heater element is usually mounted to a metal carrier, which is both spreading the thermal energy over the bed, but also is the structural element that is leveled against the carriage. Atop that comes the glass print surface.\n\nNow, once the heater element is turned on, the aluminium starts to expand and evens the distribution to the glass. As the glass has a much lower thermal expansion coefficient, it doesn't expand as fast. Because of this, the glass surface should  be glued to the bed or heater but held in position to the metal bed with a clip. This way the thermal and mechanical stress on the glass sheet is mitigated: The metal bed evens the heat transfer and the clip can move its position on the glass.",
+        " I would be careful before trying another glass just hoping it will go better, since you haven't found the issue.\n\nI have a PCB heated bed in direct contact (PCB copper traces on top) a 2 mm glass (plain float glass, not hardened and not borosilicate). It never broke and I've been using it intensely for the last few months. My heated bed is very flat (even if it bends with the heat) and also clean: no residues which can push against the glass. Clean yours properly!\n\nAlso, how powerful is your heated bed? mine is about 120 W for 12x12 cm. If yours is too powerful, maybe you could slow down the heating by reducing the maximum duty cycle (you need maybe to recompile Marlin) or by increasing the temperature 10 °C at time. \n\nI also see that you use mirrors, maybe recovered from other applications. I bought the glass new, which is very cheap but it is also guaranteed defect free. Maybe yours had issues already.",
+        " As manufactuer and 3D printing's fans, I think it's better to use custom tempered glass. It will be nice and flat and stiff. It's also easy to clean and holds up well. You can print on the bare glass with many materials or use various preparations like PVA (glue stick or white glue diluted with water are popular), hairspray, or others."
+    ],
+    "pairs": # 三个回答的顺序：0>1>2
+    [
+        [
+            0,
+            1
+        ],
+        [
+            0,
+            2
+        ],
+        [
+            2,
+            1
+        ]
+    ],
+    "sft_target": " The problem is in the design of your bed. Let's start from the basic setup of a glass bed:\n\nThe heater element is usually mounted to a metal carrier, which is both spreading the thermal energy over the bed, but also is the structural element that is leveled against the carriage. Atop that comes the glass print surface.\n\nNow, once the heater element is turned on, the aluminium starts to expand and evens the distribution to the glass. As the glass has a much lower thermal expansion coefficient, it doesn't expand as fast. Because of this, the glass surface should  be glued to the bed or heater but held in position to the metal bed with a clip. This way the thermal and mechanical stress on the glass sheet is mitigated: The metal bed evens the heat transfer and the clip can move its position on the glass."
+    }
+    """
+
+    print(f"converted sample data, prompt:{prompt} \nresult:\n{json.dumps(data[prompt], ensure_ascii=False)}")
     return data
 
 def get_shp(split: str, silent: bool = False, cache_dir: str = None) -> Dict[str, Dict[str, Union[List[Tuple[int, int]], List[str], str]]]:
@@ -181,7 +218,6 @@ def get_dolly(split: str, silent: bool = False, cache_dir: str = None) -> Dict[s
        
        For this dataset, the sft_target is just the chosen response.
     """
-    from datasets import load_from_disk
     print(f'Loading Dolly dataset ({split} split)...')
     # dataset = datasets.load_dataset('Anthropic/hh-rlhf', split=split, cache_dir=cache_dir)
     dataset_path = '/research/cbim/medical/lh599/code/rl_4_llm/results/experiment_toxic/toxicplus_7b_100_t_0_d/data/experiment_toxic_neg_epoch_0_dataset_temp_0.7_0/'
@@ -213,8 +249,8 @@ def get_dataset(name: str, split: str, silent: bool = False, cache_dir: str = No
         data = get_shp(split, silent=silent, cache_dir=cache_dir)
     elif name == 'hh':
         data = get_hh(split, silent=silent, cache_dir=cache_dir)
-    elif name == 'se':
-        data = get_se(split, silent=silent, cache_dir=cache_dir)
+    elif name == 'stack_exchange':
+        data = get_stack_exchange(split, silent=silent, cache_dir=cache_dir)
     elif name == 'dolly':
         data = get_dolly(split, silent=silent, cache_dir=cache_dir)
     else:
@@ -354,7 +390,7 @@ def get_batch_iterator(names: List[str],
         datasets.logging.set_verbosity_error()
 
     with TemporarilySeededRandom(seed):
-        permutation_seeds = iter(np.random.randint(0, 2**32, size=1000000))
+        permutation_seeds = iter(np.random.randint(low=0, high=2**32, size=1000000))
         flat_data = []
         for name in names:
             truncation_mode = 'keep_end' if name == 'hh' else 'keep_start'
@@ -372,7 +408,7 @@ def get_batch_iterator(names: List[str],
                 print(f'Finished generating {n_epochs} epochs on {split} split')
             break
         if shuffle:
-            with TemporarilySeededRandom(next(permutation_seeds)):
+            with TemporarilySeededRandom(int(next(permutation_seeds))):
                 random.shuffle(flat_data)
 
         batch = []
@@ -425,3 +461,10 @@ def strings_match_up_to_spaces(str_a: str, str_b: str) -> bool:
                     str_b = str_b[:idx] + str_b[idx + 1:]
 
     return True
+
+def tests():
+    get_stack_exchange("train")
+
+if __name__ == '__main__':
+    tests()
+

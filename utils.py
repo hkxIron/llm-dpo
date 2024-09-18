@@ -9,7 +9,7 @@ import inspect
 import importlib.util
 import socket
 import os
-from typing import Dict, Union, Type, List
+from typing import Dict, Union, Type, List, Any
 
 
 def get_remote_file(remote_path, local_path=None):
@@ -33,7 +33,7 @@ def get_remote_file(remote_path, local_path=None):
 
 def rank0_print(*args, **kwargs):
     """Print, but only on rank 0."""
-    if not dist.is_initialized() or dist.get_rank() == 0:
+    if not dist.is_initialized() or dist.get_rank() == 0: # 不是分布式或
         print(*args, **kwargs)
 
 
@@ -55,12 +55,13 @@ def get_local_run_dir(exp_name: str, local_dirs: List[str]) -> str:
     return run_dir
 
 
-def slice_and_move_batch_for_device(batch: Dict, rank: int, world_size: int, device: str) -> Dict:
+def slice_and_move_batch_for_device(batch: Dict[str, Any], rank: int, world_size: int, device: str) -> Dict:
     """Slice a batch into chunks, and move each chunk to the specified device."""
     chunk_size = len(list(batch.values())[0]) // world_size
     start = chunk_size * rank
     end = chunk_size * (rank + 1)
     sliced = {k: v[start:end] for k, v in batch.items()}
+    device = device if torch.cuda.is_available() else 'cpu'
     on_device = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in sliced.items()}
     return on_device
 

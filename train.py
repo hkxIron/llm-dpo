@@ -5,7 +5,7 @@ import transformers
 from utils import get_local_dir, get_local_run_dir, disable_dropout, init_distributed
 from transformers import AutoModelForCausalLM
 import os
-import hydra # The Python Bloom Filter.
+import hydra # meta hydra-core
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from omegaconf import OmegaConf, DictConfig
@@ -19,7 +19,7 @@ from typing import Optional, Set
 OmegaConf.register_new_resolver("get_local_run_dir", lambda exp_name, local_dirs: get_local_run_dir(exp_name, local_dirs))
 
 
-def worker_main(rank: int, world_size: int, config: DictConfig, policy: nn.Module, reference_model: Optional[nn.Module] = None):
+def worker_main(rank: int, world_size: int, config: DictConfig, policy_model: nn.Module, reference_model: Optional[nn.Module] = None):
     """Main function for each worker process (may be only 1 for BasicTrainer/TensorParallelTrainer)."""
     if 'FSDP' in config.trainer:
         init_distributed(rank, world_size, port=config.fsdp_port)
@@ -38,14 +38,16 @@ def worker_main(rank: int, world_size: int, config: DictConfig, policy: nn.Modul
             name=config.exp_name,
         )
 
-    TrainerClass = getattr(trainers, config.trainer)
+    #trainers.BasicTrainer
+    TrainerClass:trainers.BasicTrainer.__class__ = getattr(trainers, config.trainer)
     print(f'Creating trainer on process {rank} with world size {world_size}')
-    trainer = TrainerClass(policy, config, config.seed, config.local_run_dir, reference_model=reference_model, rank=rank, world_size=world_size)
+    trainer = TrainerClass(policy_model, config, config.seed, config.local_run_dir, reference_model=reference_model, rank=rank, world_size=world_size)
 
     trainer.train()
     trainer.save()
 
 
+# hydra-core包
 @hydra.main(version_base=None, config_path="config", config_name="config")
 def main(config: DictConfig):
     """Main entry point for training. Validates config, creates/initializes model(s), and kicks off worker process(es)."""
@@ -66,7 +68,7 @@ def main(config: DictConfig):
 
     config_path = os.path.join(config.local_run_dir, 'config.yaml')
     with open(config_path, 'w') as f:
-        OmegaConf.save(config, f)
+         OmegaConf.save(config, f)
 
     print('=' * 80)
     print(f'Writing to {socket.gethostname()}:{config.local_run_dir}')
@@ -75,14 +77,14 @@ def main(config: DictConfig):
     os.environ['XDG_CACHE_HOME'] = get_local_dir(config.local_dirs)
     print('building policy')
     model_kwargs = {'device_map': 'balanced'} if config.trainer == 'BasicTrainer' else {}
-    policy_dtype = getattr(torch, config.model.policy_dtype)
+    policy_dtype = getattr(torch, config.model.policy_dtype) # actor model: torch.float32
     # 真正的模型
-    policy = AutoModelForCausalLM.from_pretrained(config.model.name_or_path, low_cpu_mem_usage=True, torch_dtype=policy_dtype, **model_kwargs)
-    disable_dropout(policy)
+    policy_model = AutoModelForCausalLM.from_pretrained(config.model.name_or_path, low_cpu_mem_usage=True, torch_dtype=policy_dtype, **model_kwargs)
+    disable_dropout(policy_model)
 
     if config.loss.name == 'dpo':
         print('building reference model')
-        reference_model_dtype = getattr(torch, config.model.reference_dtype)
+        reference_model_dtype = getattr(torch, config.model.reference_dtype) # ref_model: torch.float32
         # reference的模型
         reference_model = AutoModelForCausalLM.from_pretrained(config.model.name_or_path, low_cpu_mem_usage=True, torch_dtype=reference_model_dtype, **model_kwargs)
         disable_dropout(reference_model)
@@ -93,7 +95,7 @@ def main(config: DictConfig):
         state_dict = torch.load(config.model.archive, map_location='cpu')
         step, metrics = state_dict['step_idx'], state_dict['metrics']
         print(f'loading pre-trained weights at step {step} from {config.model.archive} with metrics {json.dumps(metrics, indent=2)}')
-        policy.load_state_dict(state_dict['state'])
+        policy_model.load_state_dict(state_dict['state'])
         if config.loss.name == 'dpo':
             reference_model.load_state_dict(state_dict['state'])
         print('loaded pre-trained weights')
@@ -101,10 +103,10 @@ def main(config: DictConfig):
     if 'FSDP' in config.trainer:
         world_size = torch.cuda.device_count()
         print('starting', world_size, 'processes for FSDP training')
-        mp.spawn(worker_main, nprocs=world_size, args=(world_size, config, policy, reference_model), join=True)
+        mp.spawn(worker_main, nprocs=world_size, args=(world_size, config, policy_model, reference_model), join=True)
     else:
         print('starting single-process worker')
-        worker_main(0, 1, config, policy, reference_model)
+        worker_main(0, 1, config, policy_model, reference_model)
 
 
 if __name__ == '__main__':

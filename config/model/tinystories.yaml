@@ -1,0 +1,8 @@
+name_or_path: /home/hkx/data/work/hf_data_and_model/models/TinyStories-LLaMA2-20M-256h-4l-GQA
+tokenizer_name_or_path: null
+archive: null
+block_name: LlamaDecoderLayer
+
+policy_dtype: float32
+fsdp_policy_mp: null
+reference_dtype: float16
