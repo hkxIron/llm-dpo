@@ -88,7 +88,9 @@ eval_every: 20_000
 # prevent wandb from logging more than once per minimum_log_interval_secs
 minimum_log_interval_secs: 1.0
 
+# defaults is a special directive telling Hydra to use model/blank_model_fp32.yaml when composing the configuration object.
+# The resulting cfg object is a composition of configs from defaults with configs specified in your config.yaml.
 defaults:
 - _self_
-- model: blank_model_fp32 # basic model configuration, 会去model文件夹下找对应名称的文件
-- loss: sft # which loss function, either sft or dpo (specify loss.beta if using dpo)
+- model: blank_model_fp32 # basic model configuration, 会去model文件夹下找对应名称的文件 model/blank_model_fp32.yaml,如:tinystories,并将tinystories的内容追加到 model节点下
+- loss: sft # which loss function, either sft or dpo (specify loss.beta if using dpo),将去loss文件夹下找对应的名称的文件loss/sft.yaml,并将其中的sft.yaml中的内容追加到loss节点下

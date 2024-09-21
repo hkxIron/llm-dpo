@@ -12,6 +12,11 @@ import os
 from typing import Dict, Union, Type, List, Any
 
 
+def set_random_seed(seed:int):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
 def get_remote_file(remote_path, local_path=None):
     hostname, path = remote_path.split(':')
     local_hostname = socket.gethostname()
@@ -27,13 +32,13 @@ def get_remote_file(remote_path, local_path=None):
     os.makedirs(local_dir, exist_ok=True)
 
     print(f'Copying {hostname}:{path} to {local_path}')
-    os.system(f'scp {remote_path} {local_path}')
+    os.system(f'scp {remote_path} {local_path}') # system shell
     return local_path
 
 
 def rank0_print(*args, **kwargs):
     """Print, but only on rank 0."""
-    if not dist.is_initialized() or dist.get_rank() == 0: # 不是分布式或
+    if not dist.is_initialized() or dist.get_rank() == 0: # 不是分布式或只有一台机器
         print(*args, **kwargs)
 
 
@@ -55,15 +60,15 @@ def get_local_run_dir(exp_name: str, local_dirs: List[str]) -> str:
     return run_dir
 
 
-def slice_and_move_batch_for_device(batch: Dict[str, Any], rank: int, world_size: int, device: str) -> Dict:
+def slice_and_move_batch_for_device(batch_dict: Dict[str, Any], rank_id: int, world_size: int, target_device: int) -> Dict:
     """Slice a batch into chunks, and move each chunk to the specified device."""
-    chunk_size = len(list(batch.values())[0]) // world_size
-    start = chunk_size * rank
-    end = chunk_size * (rank + 1)
-    sliced = {k: v[start:end] for k, v in batch.items()}
-    device = device if torch.cuda.is_available() else 'cpu'
-    on_device = {k: (v.to(device) if isinstance(v, torch.Tensor) else v) for k, v in sliced.items()}
-    return on_device
+    chunk_size = len(list(batch_dict.values())[0]) // world_size # 将torch.Tensor放到不到的gpu上，但其它类型的数据还放在原来的设备上
+    start = chunk_size * rank_id
+    end = chunk_size * (rank_id + 1)
+    sliced = {k: v[start:end] for k, v in batch_dict.items()}
+    target_device = target_device if torch.cuda.is_available() else 'cpu'
+    on_device_dict = {k: (v.to(target_device) if isinstance(v, torch.Tensor) else v) for k, v in sliced.items()}
+    return on_device_dict
 
 
 def pad_to_length(tensor: torch.Tensor, length: int, pad_value: Union[int, float], dim: int = -1) -> torch.Tensor:
@@ -80,11 +85,11 @@ def all_gather_if_needed(values: torch.Tensor, rank: int, world_size: int) -> to
     """Gather and stack/cat values from all processes, if there are multiple processes."""
     if world_size == 1:
         return values
-
-    all_values = [torch.empty_like(values).to(rank) for _ in range(world_size)]
-    dist.all_gather(all_values, values)
+    # 收集各个gpu上的值到all_values中
+    all_values:List = [torch.empty_like(values).to(rank) for _ in range(world_size)]
+    dist.all_gather(all_values, values) # 将所有的值通过all_gather都收集到all_values中, 数据并行，需要收集value后进行concat
     cat_function = torch.cat if values.dim() > 0 else torch.stack
-    return cat_function(all_values, dim=0)
+    return cat_function(all_values, dim=0) # concat起来
 
 
 def formatted_dict(d: Dict) -> Dict:
@@ -113,7 +118,7 @@ def print_gpu_memory(rank: int = None, message: str = ''):
         print('*' * 40)
 
 
-def get_block_class_from_model(model: torch.nn.Module, block_class_name: str) -> torch.nn.Module:
+def get_block_class_from_model(model: torch.nn.Module, block_class_name: str) -> Type[torch.nn.Module]:
     """Get the class of a block from a model, using the block's class name."""
     for module in model.modules():
         if module.__class__.__name__ == block_class_name:
@@ -150,8 +155,9 @@ def init_distributed(rank: int, world_size: int, master_addr: str = 'localhost',
 
 
 class TemporarilySeededRandom:
-    def __init__(self, seed):
+    def __init__(self, seed:int):
         """Temporarily set the random seed, and then restore it when exiting the context."""
+        # 防止因为临时的随机破坏全局随机状态
         self.seed = seed
         self.stored_state = None
         self.stored_np_state = None

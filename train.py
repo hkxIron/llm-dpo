@@ -22,7 +22,7 @@ OmegaConf.register_new_resolver("get_local_run_dir", lambda exp_name, local_dirs
 def worker_main(rank: int, world_size: int, config: DictConfig, policy_model: nn.Module, reference_model: Optional[nn.Module] = None):
     """Main function for each worker process (may be only 1 for BasicTrainer/TensorParallelTrainer)."""
     if 'FSDP' in config.trainer:
-        init_distributed(rank, world_size, port=config.fsdp_port)
+        init_distributed(rank, world_size, port=config.fsdp_port) # 数据并行
     
     if config.debug:
         wandb.init = lambda *args, **kwargs: None
@@ -41,10 +41,10 @@ def worker_main(rank: int, world_size: int, config: DictConfig, policy_model: nn
     #trainers.BasicTrainer
     TrainerClass:trainers.BasicTrainer.__class__ = getattr(trainers, config.trainer)
     print(f'Creating trainer on process {rank} with world size {world_size}')
-    trainer = TrainerClass(policy_model, config, config.seed, config.local_run_dir, reference_model=reference_model, rank=rank, world_size=world_size)
+    trainer:trainers.BasicTrainer = TrainerClass(policy_model, config, config.seed, config.local_run_dir, reference_model=reference_model, rank=rank, world_size=world_size)
 
-    trainer.train()
-    trainer.save()
+    trainer.train() # 训练
+    trainer.save() # 保存
 
 
 # hydra-core包
@@ -80,7 +80,7 @@ def main(config: DictConfig):
     policy_dtype = getattr(torch, config.model.policy_dtype) # actor model: torch.float32
     # 真正的模型
     policy_model = AutoModelForCausalLM.from_pretrained(config.model.name_or_path, low_cpu_mem_usage=True, torch_dtype=policy_dtype, **model_kwargs)
-    disable_dropout(policy_model)
+    disable_dropout(policy_model) # 不清楚此处为何要禁止dropout
 
     if config.loss.name == 'dpo':
         print('building reference model')
@@ -91,7 +91,7 @@ def main(config: DictConfig):
     else:
         reference_model = None
 
-    if config.model.archive is not None:
+    if config.model.archive is not None: # 从checkpoint恢复
         state_dict = torch.load(config.model.archive, map_location='cpu')
         step, metrics = state_dict['step_idx'], state_dict['metrics']
         print(f'loading pre-trained weights at step {step} from {config.model.archive} with metrics {json.dumps(metrics, indent=2)}')
@@ -99,7 +99,8 @@ def main(config: DictConfig):
         if config.loss.name == 'dpo':
             reference_model.load_state_dict(state_dict['state'])
         print('loaded pre-trained weights')
-    
+
+    print("cuda is available:", torch.cuda.is_available())
     if 'FSDP' in config.trainer:
         world_size = torch.cuda.device_count()
         print('starting', world_size, 'processes for FSDP training')

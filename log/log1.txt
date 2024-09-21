@@ -1,0 +1,150 @@
+(base) hkx@hkx:/media/hkx/win/hkx/ubuntu/work/open/llm-dpo$ sh run.sh
+/home/hkx/miniconda3/lib/python3.11/site-packages/transformers/utils/generic.py:260: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+/home/hkx/miniconda3/lib/python3.11/site-packages/transformers/utils/generic.py:260: UserWarning: torch.utils._pytree._register_pytree_node is deprecated. Please use torch.utils._pytree.register_pytree_node instead.
+  torch.utils._pytree._register_pytree_node(
+WARNING: eval_every must be divisible by batch_size
+Setting eval_every to 19968
+
+最终的配置文件如下：
+seed: 0
+exp_name: stackexchange_dpo_llama
+batch_size: 64
+eval_batch_size: 32
+debug: false
+fsdp_port: 12355
+datasets:
+- stack_exchange
+wandb:
+  enabled: false
+  entity: null
+  project: direct-preference-optimization
+local_dirs:
+- /scr-ssd
+- /scr
+- .cache
+sample_during_eval: false
+do_first_eval: true
+local_run_dir: .cache/hkx/stackexchange_dpo_llama_2024-09-18_21-28-03_714080
+lr: 5.0e-07
+gradient_accumulation_steps: 8
+max_grad_norm: 10.0
+max_length: 512
+max_prompt_length: 256
+n_epochs: 1
+n_examples: null
+n_eval_examples: 256
+trainer: BasicTrainer
+optimizer: RMSprop
+warmup_steps: 150
+activation_checkpointing: false
+eval_every: 19968
+minimum_log_interval_secs: 1.0
+model:
+  name_or_path: /home/hkx/data/work/hf_data_and_model/models/TinyStories-LLaMA2-20M-256h-4l-GQA
+  tokenizer_name_or_path: null
+  archive: null
+  block_name: LlamaDecoderLayer
+  policy_dtype: float32
+  fsdp_policy_mp: bfloat16
+  reference_dtype: float16
+loss:
+  name: dpo
+  beta: 0.1
+  reference_free: false
+
+
+================================================================================
+Writing to hkx:.cache/hkx/stackexchange_dpo_llama_2024-09-18_21-28-03_714080
+================================================================================
+building policy
+building reference model
+starting single-process worker
+Creating trainer on process 0 with world size 1
+Loading tokenizer /home/hkx/data/work/hf_data_and_model/models/TinyStories-LLaMA2-20M-256h-4l-GQA
+Loaded train data iterator
+Loading SE dataset (test split) from Huggingface...
+load data done, dataset:Dataset({
+    features: ['qid', 'question', 'answers', 'date', 'metadata'],
+    num_rows: 2230
+}), shape:2230
+num_proc must be <= 22. Reducing num_proc to 22 for dataset of size 22.
+[2024-09-18 21:28:05,531][datasets.arrow_dataset][WARNING] - num_proc must be <= 22. Reducing num_proc to 22 for dataset of size 22.
+Processing SE: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 22/22 [00:00<00:00, 2183.29it/s]
+converted sample data, prompt:
+
+Human: I know I should use different nozzles for filaments that use vastly different temperatures but what about filament types that use similar temperatures?
+
+For example, PLA and PLA composites like ColorFabb Woodfill filament.  Should I use a separate nozzle for that?
+
+Assistant:
+result:
+{"responses": [" There is absolutely no reason to use different nozzles, .\n\nThe only exception is when printing abrasive filaments (such as glow-in-the-dark and carbon-fiber) in which case you should use an abrasion-resistant, stainless steel nozzle. This nozzle can also be used to to print \"regular\" filaments but a regular brass nozzle has slightly more favorable properties if you do not require abrasion resistance.", " It depends on the size of the nozzle you are using. If you are using a small nozzle, e.g. 0.2 mm, normally, you should increase the nozzle diameter (filament manufacturers often refer to about 0.5 mm nozzle diameters). Wood/cork, or whatever particle filled filament requires a somewhat larger diameter to prevent clogging.\n\nIn addition to , note that there are stainless steel nozzles and hardened steel nozzles. The latter is harder than the prior and should be used for abrasive filaments, like filament filled with metal particles or some sort of abrasive fibres like glass or carbon fibre. Note that the addition of fibres or particles may require you to increase the nozzle diameter as fibres or particles may cause clogging. A last nozzle discussed is the nozzle with an embedded industrial Ruby, a design of Anders Olsson, a research engineer at Uppsala University, more information is found on the .\n\nFrom the Olsson Ruby website, the following interesting image is shown, comparing the wear resistance of the various nozzle materials up to 0.5 mm :\n\n"], "pairs": [[0, 1]], "sft_target": " There is absolutely no reason to use different nozzles, .\n\nThe only exception is when printing abrasive filaments (such as glow-in-the-dark and carbon-fiber) in which case you should use an abrasion-resistant, stainless steel nozzle. This nozzle can also be used to to print \"regular\" filaments but a regular brass nozzle has slightly more favorable properties if you do not require abrasion resistance."}
+FINISHED 256 EXAMPLES on test split
+Loaded 8 eval batches of size 32
+Using RMSprop optimizer
+Loading SE dataset (train split) from Huggingface...
+load data done, dataset:Dataset({
+    features: ['qid', 'question', 'answers', 'date', 'metadata'],
+    num_rows: 2230
+}), shape:2230
+Processing SE: 100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 2208/2208 [00:00<00:00, 5871.67it/s]
+converted sample data, prompt:
+
+Human: About two months ago, I added a heated bed to my custom 3D printer in order to print larger ABS parts for my research project. The heated bed (the PCB kind) was not new, but taken from an old printer I had built, but took apart. The bed worked well for a few weeks, but after one print finished, the glass bed above the heater PCB had shattered into several pieces (represented by bed 1 in the image below) and the nozzle was below the level of the bed (I believed it had lowered into the glass causing the breakage. I haven't determined what caused this motion, but it hasn't happened since). Notably, this print was using the heated bed at 90 °C. I chalked this up to a freak accident, and since it did not happen again, just replaced the glass and kept printing.
+
+However, as soon as the heated bed was activated after the replacement, a small crack appeared on the glass and continued to lengthen as time progressed. I took off the glass as soon as possible and prevented it from fully breaking (see bed 2 in the image below. This bed was smaller as I didn't have access to a large enough piece of glass at the time).
+
+At this point, I figured something more than an impact caused the glass to shatter. Since both cracks occurred when the bed was heating or cooling, I figured that thermal shock could potentially be the source of the cracking, and a quick google reinforced this idea. Due to the nature of both cracks (not being straight shards but meandering around the build plate and propagating slowly), they both appeared to have been caused, or at least propagated, by thermal effects.
+
+To try to avoid future cracking, I took care in assembling the third bed. The heater PCB was attached tightly to the glass with Kapton tape and a thin layer of thermal paste was added as an interface layer to try to get an even contact and heat distribution throughout the glass plate. I made sure that the cardboard shims (which press the glass into the clips) were not too compressed, thinking that pressure in the middle of the glass plate from the shims may have accentuated the cracking by putting the top of the glass under tension.
+
+But after a few cycles with this new bed, the same problem appeared (bed 3 below). This time, the cracking was as severe as the first case, but no impact occurred and I was not touching the bed. The bed was heating up to temperature (90 °C) when the cracking occurred. The strangest part is, the file set to print was one I had already printed successfully on the newest bed.
+
+At this point I am at a loss and don't know what to do next. I don't want to make another bed just to have it crack in a few prints, but I need the bed in the near future. Any suggestions to mitigate this problem would be greatly appreciated.
+
+
+
+
+
+I have replaced the bed with a borosilicate glass sheet, switched the heater to a stick-on 120V silicone heater (the same size as the bed), and added a PEI sheet on top. After about 2 months, it is working great and no cracks have formed. My best guess is that it was a combination of poor glass, possibly with small fractures on the edges already since I cut it myself, and the heater which was too small for the bed. Thanks for the suggestions!
+
+Assistant:
+result:
+{"responses": [" The problem is in the design of your bed. Let's start from the basic setup of a glass bed:\n\nThe heater element is usually mounted to a metal carrier, which is both spreading the thermal energy over the bed, but also is the structural element that is leveled against the carriage. Atop that comes the glass print surface.\n\nNow, once the heater element is turned on, the aluminium starts to expand and evens the distribution to the glass. As the glass has a much lower thermal expansion coefficient, it doesn't expand as fast. Because of this, the glass surface should  be glued to the bed or heater but held in position to the metal bed with a clip. This way the thermal and mechanical stress on the glass sheet is mitigated: The metal bed evens the heat transfer and the clip can move its position on the glass.", " I would be careful before trying another glass just hoping it will go better, since you haven't found the issue.\n\nI have a PCB heated bed in direct contact (PCB copper traces on top) a 2 mm glass (plain float glass, not hardened and not borosilicate). It never broke and I've been using it intensely for the last few months. My heated bed is very flat (even if it bends with the heat) and also clean: no residues which can push against the glass. Clean yours properly!\n\nAlso, how powerful is your heated bed? mine is about 120 W for 12x12 cm. If yours is too powerful, maybe you could slow down the heating by reducing the maximum duty cycle (you need maybe to recompile Marlin) or by increasing the temperature 10 °C at time. \n\nI also see that you use mirrors, maybe recovered from other applications. I bought the glass new, which is very cheap but it is also guaranteed defect free. Maybe yours had issues already.", " As manufactuer and 3D printing's fans, I think it's better to use custom tempered glass. It will be nice and flat and stiff. It's also easy to clean and holds up well. You can print on the bare glass with many materials or use various preparations like PVA (glue stick or white glue diluted with water are popular), hairspray, or others."], "pairs": [[0, 1], [0, 2], [2, 1]], "sft_target": " The problem is in the design of your bed. Let's start from the basic setup of a glass bed:\n\nThe heater element is usually mounted to a metal carrier, which is both spreading the thermal energy over the bed, but also is the structural element that is leveled against the carriage. Atop that comes the glass print surface.\n\nNow, once the heater element is turned on, the aluminium starts to expand and evens the distribution to the glass. As the glass has a much lower thermal expansion coefficient, it doesn't expand as fast. Because of this, the glass surface should  be glued to the bed or heater but held in position to the metal bed with a clip. This way the thermal and mechanical stress on the glass sheet is mitigated: The metal bed evens the heat transfer and the clip can move its position on the glass."}
+Running evaluation after 0 train examples
+  0%|                                                                                                                                                                                                         | 0/8 [00:00<?, ?it/s]
+
+
+100%|██████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████| 8/8 [1:00:28<00:00, 453.57s/it]
+eval after 0: {'rewards_eval/chosen': '0.055962', 'rewards_eval/rejected': '0.058296', 'rewards_eval/accuracies': '0.48438', 'rewards_eval/margins': '-0.0023342', 'logps_eval/rejected': '-2947.2', 'logps_eval/chosen': '-3129.3', 'loss/eval': '0.69455'}
+train stats after 64 examples: {'rewards_train/chosen': '0.054105', 'rewards_train/rejected': '0.058411', 'rewards_train/accuracies': '0.42188', 'rewards_train/margins': '-0.0043057', 'logps_train/rejected': '-4432.6', 'logps_train/chosen': '-4292', 'loss/train': '0.69601', 'examples_per_second': '0.060969', 'grad_norm': '484.92', 'counters/examples': 64, 'counters/updates': 1}
+train stats after 128 examples: {'rewards_train/chosen': '-0.021703', 'rewards_train/rejected': '-0.04119', 'rewards_train/accuracies': '0.65625', 'rewards_train/margins': '0.019487', 'logps_train/rejected': '-3480.4', 'logps_train/chosen': '-3136.8', 'loss/train': '0.68376', 'examples_per_second': '0.059391', 'grad_norm': '725.21', 'counters/examples': 128, 'counters/updates': 2}
+train stats after 192 examples: {'rewards_train/chosen': '-0.15403', 'rewards_train/rejected': '-0.14911', 'rewards_train/accuracies': '0.45312', 'rewards_train/margins': '-0.0049149', 'logps_train/rejected': '-3201.3', 'logps_train/chosen': '-3268.3', 'loss/train': '0.69755', 'examples_per_second': '0.059906', 'grad_norm': '305.5', 'counters/examples': 192, 'counters/updates': 3}
+train stats after 256 examples: {'rewards_train/chosen': '-0.040542', 'rewards_train/rejected': '-0.073185', 'rewards_train/accuracies': '0.73438', 'rewards_train/margins': '0.032643', 'logps_train/rejected': '-4425.6', 'logps_train/chosen': '-4265.7', 'loss/train': '0.67786', 'examples_per_second': '0.059927', 'grad_norm': '465.25', 'counters/examples': 256, 'counters/updates': 4}
+train stats after 320 examples: {'rewards_train/chosen': '-0.17591', 'rewards_train/rejected': '-0.17653', 'rewards_train/accuracies': '0.54688', 'rewards_train/margins': '0.00062008', 'logps_train/rejected': '-3394.6', 'logps_train/chosen': '-3336.9', 'loss/train': '0.69499', 'examples_per_second': '0.059411', 'grad_norm': '232.47', 'counters/examples': 320, 'counters/updates': 5}
+train stats after 384 examples: {'rewards_train/chosen': '-0.19137', 'rewards_train/rejected': '-0.25521', 'rewards_train/accuracies': '0.64062', 'rewards_train/margins': '0.063843', 'logps_train/rejected': '-4204.1', 'logps_train/chosen': '-3988.9', 'loss/train': '0.66406', 'examples_per_second': '0.059758', 'grad_norm': '566.51', 'counters/examples': 384, 'counters/updates': 6}
+train stats after 448 examples: {'rewards_train/chosen': '-0.3917', 'rewards_train/rejected': '-0.50272', 'rewards_train/accuracies': '0.625', 'rewards_train/margins': '0.11102', 'logps_train/rejected': '-3429.5', 'logps_train/chosen': '-3256.3', 'loss/train': '0.65633', 'examples_per_second': '0.05953', 'grad_norm': '232.57', 'counters/examples': 448, 'counters/updates': 7}
+train stats after 512 examples: {'rewards_train/chosen': '-0.51994', 'rewards_train/rejected': '-0.62753', 'rewards_train/accuracies': '0.57812', 'rewards_train/margins': '0.1076', 'logps_train/rejected': '-3594.7', 'logps_train/chosen': '-3367.9', 'loss/train': '0.66366', 'examples_per_second': '0.059824', 'grad_norm': '210.32', 'counters/examples': 512, 'counters/updates': 8}
+train stats after 576 examples: {'rewards_train/chosen': '-0.69298', 'rewards_train/rejected': '-1.0154', 'rewards_train/accuracies': '0.71875', 'rewards_train/margins': '0.32246', 'logps_train/rejected': '-4110', 'logps_train/chosen': '-3743.3', 'loss/train': '0.575', 'examples_per_second': '0.059534', 'grad_norm': '555.58', 'counters/examples': 576, 'counters/updates': 9}
+train stats after 640 examples: {'rewards_train/chosen': '-1.1406', 'rewards_train/rejected': '-1.1708', 'rewards_train/accuracies': '0.54688', 'rewards_train/margins': '0.030192', 'logps_train/rejected': '-3823.9', 'logps_train/chosen': '-3805.6', 'loss/train': '0.74741', 'examples_per_second': '0.059972', 'grad_norm': '542.91', 'counters/examples': 640, 'counters/updates': 10}
+train stats after 704 examples: {'rewards_train/chosen': '-0.72914', 'rewards_train/rejected': '-0.82718', 'rewards_train/accuracies': '0.60938', 'rewards_train/margins': '0.098042', 'logps_train/rejected': '-3713.4', 'logps_train/chosen': '-3582.6', 'loss/train': '0.67633', 'examples_per_second': '0.059827', 'grad_norm': '323.92', 'counters/examples': 704, 'counters/updates': 11}
+train stats after 768 examples: {'rewards_train/chosen': '-0.54211', 'rewards_train/rejected': '-0.64598', 'rewards_train/accuracies': '0.625', 'rewards_train/margins': '0.10387', 'logps_train/rejected': '-4047.4', 'logps_train/chosen': '-3847.9', 'loss/train': '0.67121', 'examples_per_second': '0.059273', 'grad_norm': '332.59', 'counters/examples': 768, 'counters/updates': 12}
+train stats after 832 examples: {'rewards_train/chosen': '-0.37885', 'rewards_train/rejected': '-0.51526', 'rewards_train/accuracies': '0.67188', 'rewards_train/margins': '0.13641', 'logps_train/rejected': '-3512.8', 'logps_train/chosen': '-3453', 'loss/train': '0.642', 'examples_per_second': '0.060009', 'grad_norm': '276.38', 'counters/examples': 832, 'counters/updates': 13}
+train stats after 896 examples: {'rewards_train/chosen': '-0.77674', 'rewards_train/rejected': '-0.88533', 'rewards_train/accuracies': '0.54688', 'rewards_train/margins': '0.10859', 'logps_train/rejected': '-3595.7', 'logps_train/chosen': '-3665.6', 'loss/train': '0.68267', 'examples_per_second': '0.059952', 'grad_norm': '288.61', 'counters/examples': 896, 'counters/updates': 14}
+train stats after 960 examples: {'rewards_train/chosen': '-0.46114', 'rewards_train/rejected': '-0.50497', 'rewards_train/accuracies': '0.51562', 'rewards_train/margins': '0.043831', 'logps_train/rejected': '-3075.1', 'logps_train/chosen': '-3010.4', 'loss/train': '0.69944', 'examples_per_second': '0.059652', 'grad_norm': '431.63', 'counters/examples': 960, 'counters/updates': 15}
+train stats after 1024 examples: {'rewards_train/chosen': '-0.19984', 'rewards_train/rejected': '-0.166', 'rewards_train/accuracies': '0.48438', 'rewards_train/margins': '-0.033838', 'logps_train/rejected': '-3099.6', 'logps_train/chosen': '-3197.6', 'loss/train': '0.71646', 'examples_per_second': '0.059703', 'grad_norm': '384.81', 'counters/examples': 1024, 'counters/updates': 16}
+train stats after 1088 examples: {'rewards_train/chosen': '0.18685', 'rewards_train/rejected': '0.1976', 'rewards_train/accuracies': '0.5', 'rewards_train/margins': '-0.010753', 'logps_train/rejected': '-3686.9', 'logps_train/chosen': '-3375.9', 'loss/train': '0.70692', 'examples_per_second': '0.059981', 'grad_norm': '836.65', 'counters/examples': 1088, 'counters/updates': 17}
+train stats after 1152 examples: {'rewards_train/chosen': '-0.40225', 'rewards_train/rejected': '-0.46747', 'rewards_train/accuracies': '0.67188', 'rewards_train/margins': '0.065211', 'logps_train/rejected': '-4038.2', 'logps_train/chosen': '-3955.7', 'loss/train': '0.66821', 'examples_per_second': '0.061831', 'grad_norm': '366.68', 'counters/examples': 1152, 'counters/updates': 18}
+train stats after 1216 examples: {'rewards_train/chosen': '-0.41511', 'rewards_train/rejected': '-0.41577', 'rewards_train/accuracies': '0.40625', 'rewards_train/margins': '0.0006628', 'logps_train/rejected': '-3488.8', 'logps_train/chosen': '-3635.5', 'loss/train': '0.7046', 'examples_per_second': '0.059515', 'grad_norm': '298.04', 'counters/examples': 1216, 'counters/updates': 19}
+train stats after 1280 examples: {'rewards_train/chosen': '0.027758', 'rewards_train/rejected': '0.0051491', 'rewards_train/accuracies': '0.64062', 'rewards_train/margins': '0.022609', 'logps_train/rejected': '-3558.1', 'logps_train/chosen': '-3789.6', 'loss/train': '0.68612', 'examples_per_second': '0.05995', 'grad_norm': '437.58', 'counters/examples': 1280, 'counters/updates': 20}
+train stats after 1344 examples: {'rewards_train/chosen': '0.030787', 'rewards_train/rejected': '0.048317', 'rewards_train/accuracies': '0.53125', 'rewards_train/margins': '-0.01753', 'logps_train/rejected': '-3145.6', 'logps_train/chosen': '-2982.9', 'loss/train': '0.7059', 'examples_per_second': '0.060002', 'grad_norm': '516.07', 'counters/examples': 1344, 'counters/updates': 21}
+...
+train stats after 2176 examples: {'rewards_train/chosen': '-0.50711', 'rewards_train/rejected': '-0.42746', 'rewards_train/accuracies': '0.5', 'rewards_train/margins': '-0.079656', 'logps_train/rejected': '-3170.1', 'logps_train/chosen': '-3277.2', 'loss/train': '0.7528', 'examples_per_second': '0.059631', 'grad_norm': '487.79', 'counters/examples': 2176, 'counters/updates': 34}
+train stats after 2240 examples: {'rewards_train/chosen': '-0.041019', 'rewards_train/rejected': '-0.10062', 'rewards_train/accuracies': '0.60938', 'rewards_train/margins': '0.059606', 'logps_train/rejected': '-3176.7', 'logps_train/chosen': '-3629.5', 'loss/train': '0.67375', 'examples_per_second': '0.059633', 'grad_norm': '372.21', 'counters/examples': 2240, 'counters/updates': 35}
+train stats after 2304 examples: {'rewards_train/chosen': '0.33838', 'rewards_train/rejected': '0.39054', 'rewards_train/accuracies': '0.51562', 'rewards_train/margins': '-0.052159', 'logps_train/rejected': '-3408.4', 'logps_train/chosen': '-3186.5', 'loss/train': '0.73065', 'examples_per_second': '0.059423', 'grad_norm': '683.51', 'counters/examples': 2304, 'counters/updates': 36}
+train stats after 2368 examples: {'rewards_train/chosen': '-0.43182', 'rewards_train/rejected': '-0.53268', 'rewards_train/accuracies': '0.59375', 'rewards_train/margins': '0.10086', 'logps_train/rejected': '-3710.7', 'logps_train/chosen': '-3592.5', 'loss/train': '0.67077', 'examples_per_second': '0.05983', 'grad_norm': '300.34', 'counters/examples': 2368, 'counters/updates': 37}
+train stats after 2432 examples: {'rewards_train/chosen': '-0.54824', 'rewards_train/rejected': '-0.63552', 'rewards_train/accuracies': '0.57812', 'rewards_train/margins': '0.087279', 'logps_train/rejected': '-3323.3', 'logps_train/chosen': '-3698.3', 'loss/train': '0.70236', 'examples_per_second': '0.0593', 'grad_norm': '514.74', 'counters/examples': 2432, 'counters/updates': 38}
+train stats after 2496 examples: {'rewards_train/chosen': '0.12088', 'rewards_train/rejected': '-0.021992', 'rewards_train/accuracies': '0.70312', 'rewards_train/margins': '0.14287', 'logps_train/rejected': '-3666.1', 'logps_train/chosen': '-3430', 'loss/train': '0.64006', 'examples_per_second': '0.05426', 'grad_norm': '385.67', 'counters/examples': 2496, 'counters/updates': 39}
+train stats after 2560 examples: {'rewards_train/chosen': '-0.35859', 'rewards_train/rejected': '-0.4528', 'rewards_train/accuracies': '0.57812', 'rewards_train/margins': '0.094208', 'logps_train/rejected': '-3218.5', 'logps_train/chosen': '-2993.4', 'loss/train': '0.69615', 'examples_per_second': '0.05143', 'grad_norm': '288.98', 'counters/examples': 2560, 'counters/updates': 40}
+train stats after 2624 examples: {'rewards_train/chosen': '-0.63024', 'rewards_train/rejected': '-0.6569', 'rewards_train/accuracies': '0.5', 'rewards_train/margins': '0.02666', 'logps_train/rejected': '-3929.8', 'logps_train/chosen': '-4511.7', 'loss/train': '0.70767', 'examples_per_second': '0.06377', 'grad_norm': '733.85', 'counters/examples': 2624, 'counters/updates': 41}
