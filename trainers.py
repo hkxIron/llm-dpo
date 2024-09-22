@@ -159,7 +159,7 @@ class BasicTrainer(object):
 
         tokenizer_name_or_path = config.model.tokenizer_name_or_path or config.model.name_or_path
         rank0_print(f'Loading tokenizer {tokenizer_name_or_path}')
-        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path, cache_dir=get_local_dir(config.local_dirs))
+        self.tokenizer:AutoTokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path, cache_dir=get_local_dir(config.local_dirs))
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
 
@@ -213,8 +213,9 @@ class BasicTrainer(object):
            We do this to avoid doing two forward passes, because it's faster for FSDP.
         """
         chosen_reject_batch:Dict[str, torch.LongTensor] = concat_chosen_reject_inputs(batch)
-        all_logits = model.forward(chosen_reject_batch['concatenated_input_ids'],
-                                   attention_mask=chosen_reject_batch['concatenated_attention_mask']).logits.to(torch.float32)
+        all_result = model.forward(chosen_reject_batch['concatenated_input_ids'], \
+                                   attention_mask=chosen_reject_batch['concatenated_attention_mask']) # attention_mask:1所在的位置代表在一个batch中本条样本input+response的所有字符位置（包括EOS等特殊字符），0代表padding位置
+        all_logits = all_result.logits.to(torch.float32)
         all_log_probs = _get_batch_log_probs(logits=all_logits, labels=chosen_reject_batch['concatenated_labels'], average_log_prob=False)
         chosen_num = batch['chosen_input_ids'].shape[0]
         chosen_log_probs = all_log_probs[:chosen_num] # batch前面的都是正样本

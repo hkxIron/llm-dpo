@@ -309,8 +309,8 @@ def tokenize_chosen_rejected_pair(prompt: str, chosen_answer: str, rejected_answ
     prompt_tokens = tokenizer(prompt, add_special_tokens=False)
 
     assert tokenizer.eos_token_id not in prompt_tokens['input_ids'], f"Prompt contains EOS token: {prompt}"
-    assert tokenizer.eos_token_id not in chosen_tokens['input_ids'], f"Chosen response contains EOS token: {chosen}"
-    assert tokenizer.eos_token_id not in rejected_tokens['input_ids'], f"Rejected response contains EOS token: {rejected}"
+    assert tokenizer.eos_token_id not in chosen_tokens['input_ids'], f"Chosen response contains EOS token: {chosen_tokens}"
+    assert tokenizer.eos_token_id not in rejected_tokens['input_ids'], f"Rejected response contains EOS token: {rejected_tokens}"
 
     chosen_tokens['input_ids'].append(tokenizer.eos_token_id) # answer.input_ids后添加eos
     chosen_tokens['attention_mask'].append(1)
@@ -335,7 +335,7 @@ def tokenize_chosen_rejected_pair(prompt: str, chosen_answer: str, rejected_answ
         rejected_tokens = {k: v[:max_length - max_prompt_length] for k, v in rejected_tokens.items()}
 
     # Create labels
-    chosen_sequence_tokens = {k: prompt_tokens[k] + chosen_tokens[k] for k in chosen_tokens}
+    chosen_sequence_tokens = {k: prompt_tokens[k] + chosen_tokens[k] for k in chosen_tokens} # 注意：已经添加了EOS
     rejected_sequence_tokens = {k: prompt_tokens[k] + rejected_tokens[k] for k in rejected_tokens}
     chosen_sequence_tokens['labels'] = chosen_sequence_tokens['input_ids'][:] # 注意：label与原始的input一样,在计算loss前才向左shift
     chosen_sequence_tokens['labels'][:len(prompt_tokens['input_ids'])] = [-100] * len(prompt_tokens['input_ids']) # prompt部分不计算loss
