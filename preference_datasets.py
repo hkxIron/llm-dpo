@@ -272,7 +272,7 @@ def get_collate_fn(tokenizer:PreTrainedTokenizer) -> Callable[[List[Dict]], Dict
        The collate function takes a list of examples (dicts, where values are lists of
          ints [tokens] or strings [the original texts]) and returns a batch of examples,
          PyTorch tensors padded to the maximum length. Strings are passed through."""
-    def collate_fn(batch:List[Dict[str, Any]]):
+    def collate_fn(batch:List[Dict[str, Any]])-> Dict[str, Union[List, torch.Tensor]]:
         # first, pad everything to the same length
         padded_batch = {}
         for k in batch[0].keys():
